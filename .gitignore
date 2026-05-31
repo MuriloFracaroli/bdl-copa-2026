@@ -1,0 +1,19 @@
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs e temporários
+*.log
+.npm/
+
+# Nunca enviar segredos (se no futuro usares .env)
+.env
+.env.*
+!.env.example

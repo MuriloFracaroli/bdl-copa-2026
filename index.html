@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a1f0a" />
+  <meta name="description" content="Bolão Copa do Mundo FIFA 2026 — rankings e placares" />
+  <title>Bolão Copa 2026</title>
+  <link rel="icon" href="assets/logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- Shim obrigatório antes do Google gviz responder (evita "google is not defined") -->
+  <script>
+    window.google = window.google || {};
+    window.google.visualization = window.google.visualization || {};
+    window.google.visualization.Query = window.google.visualization.Query || {};
+    window._bolaoGvizResolve = null;
+    window.google.visualization.Query.setResponse = function (resp) {
+      if (typeof window._bolaoGvizResolve === "function") window._bolaoGvizResolve(resp);
+    };
+  </script>
+</head>
+<body>
+  <div class="bg-layer" aria-hidden="true">
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-glow bg-glow--gold"></div>
+    <div class="bg-glow bg-glow--green"></div>
+  </div>
+
+  <header class="hero">
+    <img
+      class="app-logo"
+      src="assets/logo.png"
+      alt="BDL — Copa do Mundo 2026"
+      width="120"
+      height="120"
+      decoding="async"
+    />
+    <h1 class="hero-title visually-hidden" id="app-title">Bolão Copa 2026</h1>
+    <p class="hero-date" id="app-date"></p>
+  </header>
+
+  <nav class="nav-tabs" aria-label="Seções">
+    <button class="nav-tab active" data-section="ranking">Ranking</button>
+    <button class="nav-tab" data-section="groups">Grupos</button>
+    <button class="nav-tab" data-section="knockout">Mata-Mata</button>
+    <button class="nav-tab" data-section="bracket">Chaveamento</button>
+  </nav>
+
+  <main class="container" id="main-container">
+    <!-- RANKING + PÓDIO -->
+    <section id="ranking" class="section section--active" aria-labelledby="ranking-heading">
+      <div class="view-capture">
+      <div class="section-header">
+        <h2 id="ranking-heading" class="section-title">Classificação Geral</h2>
+        <span class="section-tag section-tag--gold">TOP 3</span>
+      </div>
+
+      <div class="card card--glass card--podium-wrap screenshot-card">
+        <div class="podium" id="podium-view"></div>
+      </div>
+
+      <div class="card card--glass card--leaderboard screenshot-card" id="leaderboard-card">
+        <h3 class="card-subtitle card-subtitle--table">4º lugar em diante</h3>
+        <div class="leaderboard-header">
+          <span class="lb-col lb-col--pos">#</span>
+          <span class="lb-col lb-col--player">Jogador</span>
+          <span class="lb-col lb-col--pts"><span class="lb-col-pts-main">Pts</span><span class="lb-col-pts-sub">vs acima</span></span>
+        </div>
+        <ol class="leaderboard-list" id="leaderboard-list"></ol>
+      </div>
+
+      <div class="stats-row" id="stats-row"></div>
+
+      <div class="card card--glass card--highlight screenshot-card" id="mvp-card">
+        <div class="mvp-inner">
+          <div class="mvp-icon">🎯</div>
+          <div class="mvp-text">
+            <span class="mvp-label">Mais Preciso</span>
+            <span class="mvp-name" id="mvp-name">—</span>
+            <span class="mvp-detail" id="mvp-detail"></span>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- GRUPOS -->
+    <section id="groups" class="section" aria-labelledby="groups-heading">
+      <div class="view-capture">
+      <div class="section-header">
+        <h2 id="groups-heading" class="section-title">Fase de Grupos</h2>
+      </div>
+      <div class="group-tabs group-tabs--scroll" id="group-tabs"></div>
+      <div class="groups-unified card card--glass screenshot-card">
+        <div class="table-scroll table-scroll--groups" id="group-unified-table"></div>
+      </div>
+      </div>
+    </section>
+
+    <!-- MATA-MATA -->
+    <section id="knockout" class="section" aria-labelledby="knockout-heading">
+      <div class="view-capture">
+      <div class="section-header">
+        <h2 id="knockout-heading" class="section-title">Mata-Mata</h2>
+      </div>
+      <div class="card card--glass knockout-rules-card screenshot-card">
+        <h3 class="card-subtitle">Pontuação mata-mata</h3>
+        <div class="knockout-rules" id="knockout-rules"></div>
+        <p class="knockout-rules-note">Total geral = fase de grupos + mata-mata</p>
+      </div>
+
+      <div class="card card--glass screenshot-card">
+        <h3 class="card-subtitle card-subtitle--table">Acertos por fase</h3>
+        <div class="knockout-scores-wrap" id="knockout-scores"></div>
+      </div>
+      </div>
+    </section>
+
+    <!-- CHAVEAMENTO OFICIAL -->
+    <section id="bracket" class="section" aria-label="Chaveamento oficial">
+      <div class="bracket-page view-capture">
+        <div class="bracket-scroll">
+          <div class="bracket-board" id="bracket-board" aria-live="polite"></div>
+        </div>
+        <footer class="bracket-footer">
+          <p class="bracket-note">
+            <span class="bracket-note-icon" aria-hidden="true">!</span>
+            Jogos oficiais (aba <strong>JOGOS MATA MATA</strong>). Ao lado de cada país: quem pontuou ao acertar o palpite na fase.
+          </p>
+          <div class="bracket-summary" id="bracket-summary" aria-label="Resumo da pontuação mata-mata"></div>
+        </footer>
+      </div>
+    </section>
+  </main>
+
+  <footer class="sheet-bar" id="sheet-bar" aria-live="polite">
+    <div class="sheet-loading" id="sheet-loading" hidden>
+      <span class="sheet-loading__spinner" aria-hidden="true"></span>
+      <span>Carregando planilha…</span>
+    </div>
+    <p class="sheet-status" id="sheet-status" hidden></p>
+    <button type="button" class="btn-sheet-refresh" id="btn-sheet-refresh" hidden>
+      ↻ Atualizar planilha
+    </button>
+  </footer>
+
+  <script src="mockData.js"></script>
+  <script src="sheets-loader.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
