@@ -47,6 +47,9 @@ const BRACKET_PHASE_META = [
 
 const MEDALS = ["", "🥇", "🥈", "🥉"];
 
+/** Aba extra na fase de grupos: visão agregada de pontuação. */
+const GROUP_TAB_TOTAL = "__TOTAL__";
+
 /** Títulos fixos por posição no ranking geral (1º–14º). */
 const RANK_TITLES = [
   "THE CHOSEN ONE",
@@ -72,35 +75,51 @@ function getRankTitle(position) {
 
 /* ---------- Scoring: Fase de Grupos ---------- */
 
-function calcGroupRowPoints(palpite, resultado) {
+/**
+ * Decomposição por regra (+1 cada) — usada por `calcGroupRowPoints` e pela
+ * agregação da aba TOTAL (uma única fonte de verdade).
+ *
+ * Critério por **palpite** (posição que o jogador marcou na seleção):
+ * - “1º palpite” (pod1): marcou **1** e a seleção ficou no **top 3** (1–3).
+ * - “1 exato” (ex1): marcou **1** e ficou **1º**.
+ * - “2º palpite” (pod2): marcou **2** e a seleção ficou no **top 3**.
+ * - “2 exato” (ex2): marcou **2** e ficou **2º**.
+ * - “3º palpite” (col3): marcou **3** e a seleção ficou no **top 3**.
+ */
+function decomposeGroupPhaseRowPoints(palpite, resultado) {
+  const empty = { pod1: 0, ex1: 0, pod2: 0, ex2: 0, col3: 0, total: 0 };
   if (
     palpite == null ||
     !Number.isFinite(Number(palpite)) ||
     Number(palpite) < 1 ||
     Number(palpite) > 4
   ) {
-    return 0;
+    return empty;
   }
-  let pts = 0;
   const p = Number(palpite);
   const r = Number(resultado);
+  if (!Number.isFinite(r) || r < 1 || r > 4) return empty;
 
-  // Classificou no top 2 (real) e palpitou top 2
-  if ((r === 1 || r === 2) && (p === 1 || p === 2)) pts += 1;
+  let pod1 = 0;
+  let ex1 = 0;
+  let pod2 = 0;
+  let ex2 = 0;
+  let col3 = 0;
 
-  // 3º colocado que avança — palpite na 3ª posição
-  if (r === 3 && p === 3) pts += 1;
+  if (p === 1 && r >= 1 && r <= 3) pod1 = 1;
+  if (p === 1 && r === 1) ex1 = 1;
 
-  // Acertou que a seleção classificaria (posições 1–3), sem posição exata
-  if (p >= 1 && p <= 3 && r >= 1 && r <= 3 && pts === 0) pts += 1;
+  if (p === 2 && r >= 1 && r <= 3) pod2 = 1;
+  if (p === 2 && r === 2) ex2 = 1;
 
-  // Bônus 1º lugar exato
-  if (p === 1 && r === 1) pts += 1;
+  if (p === 3 && r >= 1 && r <= 3) col3 = 1;
 
-  // Bônus 2º lugar exato
-  if (p === 2 && r === 2) pts += 1;
+  const total = pod1 + ex1 + pod2 + ex2 + col3;
+  return { pod1, ex1, pod2, ex2, col3, total };
+}
 
-  return pts;
+function calcGroupRowPoints(palpite, resultado) {
+  return decomposeGroupPhaseRowPoints(palpite, resultado).total;
 }
 
 function calcKnockoutRowPoints(row) {
@@ -216,6 +235,203 @@ function processGroupData() {
 
 function processGroupDataForRanking() {
   return processGroupData();
+}
+
+/**
+ * Colunas da visão TOTAL: numerador = +1 ganhos na regra; denominador = nº de linhas
+ * em que o jogador marcou explicitamente palpite 1, 2 ou 3 (oportunidades daquele “slot”).
+ */
+const GROUP_TOTAL_COLUMNS = [
+  {
+    keyHits: "pod1",
+    denomKey: "denPod1",
+    label: "1º palpite",
+    title:
+      "+1 pt: marcou 1 para a seleção e ela ficou entre 1º e 3º. Denominador = vezes que marcou 1 na planilha.",
+  },
+  {
+    keyHits: "ex1",
+    denomKey: "denEx1",
+    label: "1 exato",
+    title:
+      "+1 pt extra: marcou 1 e a seleção ficou em 1º. Denominador = linhas com palpite 1 explícito.",
+  },
+  {
+    keyHits: "pod2",
+    denomKey: "denPod2",
+    label: "2º palpite",
+    title:
+      "+1 pt: marcou 2 e a seleção ficou entre 1º e 3º. Denominador = vezes que marcou 2.",
+  },
+  {
+    keyHits: "ex2",
+    denomKey: "denEx2",
+    label: "2 exato",
+    title:
+      "+1 pt extra: marcou 2 e a seleção ficou em 2º. Denominador = linhas com palpite 2 explícito.",
+  },
+  {
+    keyHits: "col3",
+    denomKey: "denCol3",
+    label: "3º palpite",
+    title:
+      "+1 pt: marcou 3 e a seleção ficou entre 1º e 3º. Denominador = vezes que marcou 3.",
+  },
+];
+
+function emptyGroupAgg(chavePlanilha, nome) {
+  return {
+    chavePlanilha,
+    nome,
+    ptsTotal: 0,
+    pod1: 0,
+    ex1: 0,
+    pod2: 0,
+    ex2: 0,
+    col3: 0,
+    denPod1: 0,
+    denEx1: 0,
+    denPod2: 0,
+    denEx2: 0,
+    denCol3: 0,
+  };
+}
+
+function buildGroupPhaseDetailByPlayer() {
+  let keys = (MOCK_DATA.jogadoresPlanilha || []).map((j) => normKeyPlayer(j));
+  if (!keys.length) {
+    keys = [
+      ...new Set(
+        (MOCK_DATA.faseGrupos || []).map((r) => normKeyPlayer(r.jogador))
+      ),
+    ];
+  }
+  const visivel = new Set(keys.filter(Boolean));
+  const byKey = new Map();
+  visivel.forEach((k) => {
+    const meta = getPlayerMeta(k);
+    byKey.set(k, emptyGroupAgg(k, meta.nome));
+  });
+
+  processGroupData().forEach((row) => {
+    const k = normKeyPlayer(row.jogador);
+    if (!visivel.has(k)) return;
+    if (row.palpiteDaPlanilha !== true) return;
+    if (!rowTemPalpiteGrupo(row)) return;
+
+    const agg = byKey.get(k);
+    if (!agg) return;
+
+    const p = Number(row.palpite);
+    if (p === 1) {
+      agg.denPod1 += 1;
+      agg.denEx1 += 1;
+    }
+    if (p === 2) {
+      agg.denPod2 += 1;
+      agg.denEx2 += 1;
+    }
+    if (p === 3) agg.denCol3 += 1;
+
+    if (resultadoParaPontos(row)) {
+      const d = decomposeGroupPhaseRowPoints(row.palpite, row.resultado);
+      agg.ptsTotal += d.total;
+      agg.pod1 += d.pod1;
+      agg.ex1 += d.ex1;
+      agg.pod2 += d.pod2;
+      agg.ex2 += d.ex2;
+      agg.col3 += d.col3;
+    }
+  });
+
+  return [...byKey.values()];
+}
+
+function formatGrpTotalRatio(hits, opps) {
+  const h = Number(hits) || 0;
+  const o = Number(opps) || 0;
+  if (!o) return "0/0";
+  return `${h}/${o}`;
+}
+
+function renderGroupTotalCellClass(hits, opps) {
+  const o = Number(opps) || 0;
+  const h = Number(hits) || 0;
+  if (!o || h === 0) return "";
+  const pct = Math.round((h / o) * 100);
+  if (pct >= 50) return "gt-score-fase--hit";
+  return "gt-score-fase--partial";
+}
+
+function renderGroupTotal() {
+  const el = document.getElementById("group-unified-table");
+  if (!el) return;
+
+  const details = buildGroupPhaseDetailByPlayer();
+  details.sort(
+    (a, b) =>
+      b.ptsTotal - a.ptsTotal ||
+      b.pod1 +
+        b.ex1 +
+        b.pod2 +
+        b.ex2 +
+        b.col3 -
+        (a.pod1 + a.ex1 + a.pod2 + a.ex2 + a.col3) ||
+      a.nome.localeCompare(b.nome, "pt-BR")
+  );
+
+  if (!details.length) {
+    el.innerHTML =
+      '<p class="empty-state">Nenhum jogador listado na planilha (aba Palpites) para exibir o total.</p>';
+    return;
+  }
+
+  const heads = GROUP_TOTAL_COLUMNS.map(
+    (col) =>
+      `<span class="gt-score-fase gt-score-fase--head" title="${escapeHtml(col.title)}">${escapeHtml(col.label)}</span>`
+  ).join("");
+
+  el.innerHTML = `
+    <div class="group-total-wrap">
+      <p class="group-total-intro">
+        Estatísticas da <strong>fase de grupos</strong> por <strong>posição que você marcou na planilha</strong>
+        (1, 2 ou 3): <span class="group-total-ratio-hint">acertos / quantas vezes marcou aquele palpite</span>
+        (só células com PALPITE explícito). O <strong>Pts</strong> soma as mesmas regras que as tabelas por grupo.
+      </p>
+      <div class="knockout-scores-wrap group-total-scroll">
+        <div class="gt-score-head">
+          <span class="gt-score-col gt-score-col--player">Jogador</span>
+          <span class="gt-score-col gt-score-col--total" title="Pontos totais fase de grupos">Pts</span>
+          ${heads}
+        </div>
+        <ul class="gt-score-list">
+          ${details
+            .map((a) => {
+              const meta = getPlayerMeta(a.nome);
+              const cells = GROUP_TOTAL_COLUMNS.map((col) => {
+                const ptsGanhos = a[col.keyHits];
+                const teto = a[col.denomKey] ?? 0;
+                const text = formatGrpTotalRatio(ptsGanhos, teto);
+                const hitClass = renderGroupTotalCellClass(ptsGanhos, teto);
+                const tip = `${ptsGanhos}/${teto} pts · ${escapeHtml(col.title)}`;
+                return `<span class="gt-score-fase ${hitClass}" title="${tip}">
+                  <span class="gt-ratio">${text}</span>
+                </span>`;
+              }).join("");
+              return `
+            <li class="gt-score-row">
+              <span class="gt-score-col gt-score-col--player">
+                <span class="gt-score-avatar" style="border-color:${meta.cor}">${meta.avatar}</span>
+                ${escapeHtml(meta.nome)}
+              </span>
+              <span class="gt-score-col gt-score-col--total">${a.ptsTotal}</span>
+              ${cells}
+            </li>`;
+            })
+            .join("")}
+        </ul>
+      </div>
+    </div>`;
 }
 
 function processKnockoutData() {
@@ -662,14 +878,19 @@ function renderGroupTabs(groups) {
   const el = document.getElementById("group-tabs");
   if (!activeGroup) activeGroup = groups[0];
 
-  el.innerHTML = groups
-    .map(
+  const tabsHtml = [
+    ...groups.map(
       (g) => `
-      <button class="group-tab ${g === activeGroup ? "active" : ""}" data-group="${g}">
+      <button type="button" class="group-tab ${g === activeGroup ? "active" : ""}" data-group="${g}">
         GRUPO ${g}
       </button>`
-    )
-    .join("");
+    ),
+    `<button type="button" class="group-tab group-tab--total ${activeGroup === GROUP_TAB_TOTAL ? "active" : ""}" data-group="${GROUP_TAB_TOTAL}">
+      TOTAL
+    </button>`,
+  ].join("");
+
+  el.innerHTML = tabsHtml;
 
   el.querySelectorAll(".group-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -687,13 +908,48 @@ function getGroupPlayerTotals(rows) {
   return totals;
 }
 
-function sortPlayersByGroupPoints(players, totals) {
-  return [...players].sort(
-    (a, b) =>
-      (totals.get(b) || 0) - (totals.get(a) || 0) ||
-      getPlayerMeta(a)
-        .nome.localeCompare(getPlayerMeta(b).nome, "pt-BR")
-  );
+/**
+ * Ordem fixa das colunas na tabela por grupo: lista em `MOCK_DATA.jogadores`,
+ * depois nomes em `jogadoresPlanilha` que ainda não apareceram; por fim, quem
+ * só existir nos dados, por nome (sem ordenar por pontos).
+ */
+function getFixedPlayerOrderKeys() {
+  const keys = [];
+  const seen = new Set();
+  (MOCK_DATA.jogadores || []).forEach((j) => {
+    const k = normKeyPlayer(j.id || j.nome);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  });
+  (MOCK_DATA.jogadoresPlanilha || []).forEach((raw) => {
+    const k = normKeyPlayer(raw);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  });
+  return keys;
+}
+
+function sortPlayersFixedGroupOrder(playersInGroup) {
+  const list = [...new Set(playersInGroup)];
+  const keyFor = (j) => normKeyPlayer(j);
+  const orderKeys = getFixedPlayerOrderKeys();
+  const ordered = [];
+  const used = new Set();
+  orderKeys.forEach((k) => {
+    const m = list.find((x) => keyFor(x) === k);
+    if (m != null) {
+      ordered.push(m);
+      used.add(keyFor(m));
+    }
+  });
+  const rest = list
+    .filter((j) => !used.has(keyFor(j)))
+    .sort((a, b) =>
+      getPlayerMeta(a).nome.localeCompare(getPlayerMeta(b).nome, "pt-BR")
+    );
+  return [...ordered, ...rest];
 }
 
 function renderGroupUnified(grupo) {
@@ -707,9 +963,8 @@ function renderGroupUnified(grupo) {
         r.palpiteDaPlanilha === true &&
         rowTemPalpiteGrupo(r)
     );
-  const players = sortPlayersByGroupPoints(
-    [...new Set(rows.map((r) => r.jogador))].filter(comPalpiteNesteGrupo),
-    totals
+  const players = sortPlayersFixedGroupOrder(
+    [...new Set(rows.map((r) => r.jogador))].filter(comPalpiteNesteGrupo)
   );
   const el = document.getElementById("group-unified-table");
   if (!el) return;
@@ -720,17 +975,13 @@ function renderGroupUnified(grupo) {
     return;
   }
 
-  const maxPts = players.length ? totals.get(players[0]) || 0 : 0;
-
   let html = `<table class="data-table data-table--unified" style="--player-cols:${players.length}"><thead><tr>
     <th class="th-selecao" scope="col"><span class="visually-hidden">Seleção</span></th>
     ${players
       .map((j) => {
         const pts = totals.get(j) || 0;
-        const lead =
-          pts === maxPts && maxPts > 0 ? " th-jogador--lead" : "";
         const meta = getPlayerMeta(j);
-        return `<th scope="col" class="th-jogador${lead}">
+        return `<th scope="col" class="th-jogador">
           <span class="th-jogador-name">
             <span class="th-jogador-avatar" style="border-color:${meta.cor}">${meta.avatar}</span>
             <span class="th-jogador-label">${escapeHtml(meta.nome)}</span>
@@ -817,9 +1068,15 @@ function renderGroups() {
     return;
   }
 
-  if (!activeGroup || !groups.includes(activeGroup)) activeGroup = groups[0];
+  if (!activeGroup || (!groups.includes(activeGroup) && activeGroup !== GROUP_TAB_TOTAL)) {
+    activeGroup = groups[0];
+  }
   renderGroupTabs(groups);
-  renderGroupUnified(activeGroup);
+  if (activeGroup === GROUP_TAB_TOTAL) {
+    renderGroupTotal();
+  } else {
+    renderGroupUnified(activeGroup);
+  }
 }
 
 /* ---------- Render: Knockout ---------- */
