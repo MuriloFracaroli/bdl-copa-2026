@@ -82,7 +82,7 @@ const MOCK_DATA = {
     { id: "MURILOFF", nome: "Zé Da Manga", avatar: "🥭", cor: "#ff9100" },
     { id: "PAYDAY", nome: "mago siberiano", avatar: "🥶", cor: "#81d4fa" },
     { id: "RIZZARDO", nome: "Rizzardeus", avatar: "🫏", cor: "#8d7b6f" },
-    { id: "ROQUE", nome: "Roque", avatar: "🦁", cor: "#ffa726" },
+    { id: "ROQUE", nome: "Zé Pilantrinha", avatar: "🔥", cor: "#ffa726" },
     { id: "SYNCH", nome: "TOURO REPRODUTOR", avatar: "🐂", cor: "#6d4c41" },
     { id: "TQZZI", nome: "Tozzi", avatar: "🎯", cor: "#c62828" },
   ],
