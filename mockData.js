@@ -84,7 +84,7 @@ const MOCK_DATA = {
     { id: "RIZZARDO", nome: "Rizzardeus", avatar: "🫏", cor: "#8d7b6f" },
     { id: "ROQUE", nome: "Zé Pilantrinha", avatar: "🔥", cor: "#ffa726" },
     { id: "SYNCH", nome: "TOURO REPRODUTOR", avatar: "🐂", cor: "#6d4c41" },
-    { id: "TQZZI", nome: "Tozzi", avatar: "🎯", cor: "#c62828" },
+    { id: "TQZZI", nome: "Dangerz Pangaré véio", avatar: "🍑", cor: "#c62828" },
   ],
 
   paises: PAISES_INFO,
