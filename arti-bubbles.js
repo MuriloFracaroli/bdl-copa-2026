@@ -657,6 +657,60 @@
     return s;
   }
 
+  function escHtmlLite(str) {
+    const d = document.createElement("div");
+    d.textContent = str == null ? "" : String(str);
+    return d.innerHTML;
+  }
+
+  /** Bandeira regional (emoji) só para ISO2 (ex.: mx); ignora códigos compostos (ex.: gb-eng). */
+  function flagEmojiFromIso2Letter(codigo) {
+    const raw = String(codigo || "")
+      .trim()
+      .toLowerCase()
+      .replace(/_/g, "");
+    if (!/^[a-z]{2}$/.test(raw)) return "";
+    const A = 0x1f1e6;
+    return String.fromCodePoint(
+      A + raw.charCodeAt(0) - 97,
+      A + raw.charCodeAt(1) - 97
+    );
+  }
+
+  /** Texto sob a bolha oficial no canvas: emoji + país (imagem PNG não desenhada aqui). */
+  function hubPaisLineCanvas(hub) {
+    const label = officialPaisLabel(hub.pais);
+    if (!label) return "";
+    let emoji = "";
+    if (typeof getCountryInfo === "function" && typeof parsePais === "function") {
+      try {
+        const info = getCountryInfo(parsePais(hub.pais));
+        emoji = flagEmojiFromIso2Letter(info.codigo);
+      } catch (_) {}
+    }
+    return emoji ? `${emoji} ${label}` : label;
+  }
+
+  /** HTML do tooltip: <img bandeira> + nome. */
+  function hubPaisLineTooltipHtml(hub) {
+    const label = officialPaisLabel(hub.pais);
+    if (!label) return "";
+    if (
+      typeof getCountryInfo !== "function" ||
+      typeof parsePais !== "function" ||
+      typeof flagUrl !== "function"
+    ) {
+      return escHtmlLite(label);
+    }
+    try {
+      const info = getCountryInfo(parsePais(hub.pais));
+      const src = flagUrl(info.codigo, 40);
+      return `<img class="arti-tip-flag" src="${escHtmlLite(src)}" alt="" width="22" height="16" loading="lazy" crossorigin="anonymous" /><span>${escHtmlLite(info.nome)}</span>`;
+    } catch (_) {
+      return escHtmlLite(label);
+    }
+  }
+
   /** Chave para mapa de fotos (minúsculas, sem acentos). */
   function normPhotoLookupKey(s) {
     return String(s || "")
@@ -1362,7 +1416,7 @@
       Number.isFinite(a) && a >= 0
         ? `${gPart} · ${a} assist.`
         : gPart;
-    const paisTxt = officialPaisLabel(hub.pais);
+    const paisTxt = hubPaisLineCanvas(hub);
     const hgf = hubGoalsAuraFactor(g);
 
     const nome = hub.atleta || "—";
@@ -2316,9 +2370,9 @@
           : h.pos != null && String(h.pos).trim() !== ""
             ? `${escapeHtml(String(h.pos))}º`
             : "—";
-      const paisLine = officialPaisLabel(h.pais);
-      const paisHtml = paisLine
-        ? `<br><span class="arti-tip-pais">${escapeHtml(paisLine)}</span>`
+      const paisHtmlInner = hubPaisLineTooltipHtml(h);
+      const paisHtml = paisHtmlInner
+        ? `<br><span class="arti-tip-pais arti-tip-pais--with-flag">${paisHtmlInner}</span>`
         : "";
       const leaderHtml = hit.isLeader
         ? `<br><span class="arti-tip-leader">1º por golos (classificação)</span>`

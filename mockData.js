@@ -99,6 +99,8 @@ const MOCK_DATA = {
   mmResultadosPorFase: {},
   jogosMataMata: [],
   jogosMataMataPorFase: {},
+  /** Calendário da aba Jogos: { data, hora, pais1, pais2, confronto, grupo? } — data texto tipo BR dia/mês. */
+  jogos: [],
   /** Palpites da aba Artilheiro: { jogador, artilheiro, gols } (preenchido pelo sheets-loader). */
   artilheiro: [],
   /** Ranking oficial da aba Resultados Artilheiros: { pos, atleta, gols, pais?, foto? (URL, col. Foto), assistencias? } */

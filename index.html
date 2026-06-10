@@ -46,9 +46,11 @@
   <nav class="nav-tabs" aria-label="Seções">
     <button class="nav-tab active" data-section="ranking">Ranking</button>
     <button class="nav-tab" data-section="groups">Grupos</button>
+    <button class="nav-tab" data-section="calendar">Calendário</button>
     <button class="nav-tab" data-section="knockout">Mata-Mata</button>
     <button class="nav-tab" data-section="bracket">Chaveamento</button>
     <button class="nav-tab" data-section="picks">Artilheiro</button>
+    <button class="nav-tab" data-section="duel">X1</button>
   </nav>
 
   <main class="container" id="main-container">
@@ -102,6 +104,16 @@
       </div>
     </section>
 
+    <!-- CALENDÁRIO (aba Jogos na planilha) -->
+    <section id="calendar" class="section" aria-labelledby="calendar-heading">
+      <div class="view-capture">
+        <div class="section-header">
+          <h2 id="calendar-heading" class="section-title">Calendário de jogos</h2>
+        </div>
+        <div class="calendar-body" id="calendar-body" aria-live="polite"></div>
+      </div>
+    </section>
+
     <!-- MATA-MATA -->
     <section id="knockout" class="section" aria-labelledby="knockout-heading">
       <div class="view-capture">
@@ -118,6 +130,33 @@
         <h3 class="card-subtitle card-subtitle--table">Acertos por fase</h3>
         <div class="knockout-scores-wrap" id="knockout-scores"></div>
       </div>
+      </div>
+    </section>
+
+    <!-- X1 -->
+    <section id="duel" class="section" aria-labelledby="duel-heading">
+      <div class="view-capture duel-page">
+        <div class="section-header">
+          <h2 id="duel-heading" class="section-title">X1</h2>
+          <span class="section-tag section-tag--duel">Palpites &amp; resultados</span>
+        </div>
+        <div class="card card--glass duel-toolbar">
+          <p class="duel-toolbar-intro">
+            Escolhe dois participantes para comparar palpites na fase de grupos, acertos no mata-mata e totais — estilo duelo.
+          </p>
+          <div class="duel-toolbar-grid">
+            <label class="duel-field">
+              <span class="duel-field-label">Jogador A</span>
+              <select id="duel-select-a" class="duel-select" aria-label="Jogador A"></select>
+            </label>
+            <span class="duel-vs" aria-hidden="true">×</span>
+            <label class="duel-field">
+              <span class="duel-field-label">Jogador B</span>
+              <select id="duel-select-b" class="duel-select" aria-label="Jogador B"></select>
+            </label>
+          </div>
+        </div>
+        <div id="duel-body" class="duel-body" aria-live="polite"></div>
       </div>
     </section>
 

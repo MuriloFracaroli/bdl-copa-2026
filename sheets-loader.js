@@ -8,6 +8,9 @@
  * Aba Artilheiro — NOME, ARTILHEIRO (jogador da copa), GOLS (ex.: "11 gols")
  * Aba «Resultados Artilheiros» — ranking oficial: POS/ORDEM + ATLETA/ARTILHEIRO + PAÍS (opc.) + GOLS (ou atleta + gols / atleta + país + gols).
  * Cuidado: «Resultado Artilheiros» (sem s) não é esta aba; o gviz pode devolver a primeira aba e o parse zera os dados.
+ * Aba Jogos — calendário fase de grupos: DATA, HORA, PAÍS 1, PAÍS 2 (células podem ter emoji + nome).
+ * Coluna DATA no padrão Brasil: **dia/mês** (ex.: 11/06 = 11 de junho), ou fórmula DATE(ano,mês,dia) do Sheets, ou AAAA-MM-DD.
+ * No JSON do Google, o texto formatado da célula (`f`) tem prioridade sobre o número serial (`v`) quando ambos existem, para bater com o que vês na planilha.
  * https://docs.google.com/spreadsheets/d/1iQ1xBKKcgRA8ESFQdZp8-ZWUWZrxc62a14aTy8UN4Ig
  */
 
@@ -32,6 +35,9 @@ const SHEETS_CONFIG = {
   jogosMataMata: {
     sheetName: "JOGOS MATA MATA",
     gid: "560138314",
+  },
+  jogos: {
+    sheetName: "Jogos",
   },
   artilheiro: {
     sheetName: "Artilheiro",
@@ -138,6 +144,22 @@ function parseGolsArtilheiroCell(raw) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Remove emojis (ex.: bandeiras na coluna País) para extrair o nome antes de parsePais. */
+function stripEmojisForTextCell(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  try {
+    return s
+      .replace(/\p{Extended_Pictographic}+/gu, " ")
+      .replace(/\uFE0F/g, "")
+      .replace(/\u200D/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  } catch {
+    return s.replace(/\s+/g, " ").trim();
+  }
+}
+
 /** Primeira URL http(s) na célula (ex.: coluna Foto com texto extra ou fórmula). */
 function extractPhotoUrlFromCell(raw) {
   if (raw === undefined || raw === null) return "";
@@ -234,14 +256,64 @@ function parseCSV(text) {
   return rows;
 }
 
+/** Célula DATA (gviz): evita String({v,f}) → "[object Object]" e favorece texto formatado quando for serial. */
+function jogoDataCellToPrimitive(dataRaw) {
+  if (dataRaw == null) return dataRaw;
+  if (typeof dataRaw === "object" && !Array.isArray(dataRaw)) {
+    if ("v" in dataRaw || "f" in dataRaw) return gvizCellRawValue(dataRaw);
+  }
+  return dataRaw;
+}
+
 /** Valor bruto da célula gviz (v + f). Quando v vem vazio/null mas há texto em f, usa f — evita perder "-" formatado. */
 function gvizCellRawValue(cell) {
   if (!cell) return "";
   const v = cell.v;
-  const f = cell.f;
+  const f = cell.f != null ? String(cell.f).trim() : "";
   const vEmpty = v === "" || v === null || v === undefined;
+
+  const vLooksLikeSerialString =
+    typeof v === "string" && /^\s*\d{5,7}(\.\d+)?\s*$/.test(v);
+  const vIsNumericSerial = typeof v === "number" && Number.isFinite(v);
+  const vIsGoogleDateArray = Array.isArray(v) && v.length >= 3;
+
+  /**
+   * Preferir o texto `f` quando parece data (barras, hífens, «de …», meses em português, ISO),
+   * para não substituir números genéricos cujo `f` é só outra forma do mesmo valor.
+   */
+  const fLooksLikeSpreadsheetDate =
+    /[\/\-]/.test(f) ||
+    /\b(de|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)\b/i.test(f) ||
+    /^\d{4}-\d{2}-\d{2}/.test(f) ||
+    /\d{1,2}\.\d{1,2}\.\d{4}/.test(f);
+
+  if (
+    (vIsNumericSerial || vLooksLikeSerialString || vIsGoogleDateArray) &&
+    f !== "" &&
+    fLooksLikeSpreadsheetDate
+  ) {
+    return f;
+  }
+
+  if (vIsGoogleDateArray) {
+    const y = Number(v[0]);
+    const m0 = Number(v[1]);
+    const d = Number(v[2]);
+    if (
+      [y, m0, d].every(Number.isFinite) &&
+      m0 >= 0 &&
+      m0 <= 11 &&
+      d >= 1 &&
+      d <= 31
+    ) {
+      const mm = String(m0 + 1).padStart(2, "0");
+      const dd = String(d).padStart(2, "0");
+      return `${y}-${mm}-${dd}`;
+    }
+  }
+
   if (vEmpty) {
-    if (f != null && String(f).trim() !== "") return f;
+    if (f !== "") return f;
     return "";
   }
   return v;
@@ -256,16 +328,24 @@ function gvizTableToObjects(table) {
   });
   return table.rows.map((r) => {
     const obj = {};
+    /** Ordem física das colunas (FASE, PAÍS 1, …) — evita rowToCells errado por sort alfabético. */
+    const order = [];
     (r.c || []).forEach((cell, i) => {
       const val = gvizCellRawValue(cell);
-      obj[cols[i] || `COL${i}`] = val;
+      const key = cols[i] || `COL${i}`;
+      obj[key] = val;
+      order.push(val);
     });
+    obj.__cellOrder = order;
     return obj;
   });
 }
 
 function rowToCells(row) {
   if (Array.isArray(row)) return row.map((c) => (c == null ? "" : c));
+  if (row && Array.isArray(row.__cellOrder)) {
+    return row.__cellOrder.map((c) => (c == null ? "" : c));
+  }
   return Object.keys(row)
     .sort((a, b) => {
       const ai = Number(String(a).replace(/\D/g, "")) || 0;
@@ -533,12 +613,35 @@ function parseJogosMataMata(rows) {
     const fase = parseFase(pickRowField(row, "FASE") ?? cells[0]);
     if (!fase) return;
 
-    const pais1 = parsePais(
-      pickRowField(row, "PAIS 1", "PAIS1", "PAIS_1", "PAÍS 1") ?? cells[1]
-    );
+    const pais1Raw =
+      pickRowField(
+        row,
+        "PAIS 1",
+        "PAIS1",
+        "PAIS_1",
+        "PAÍS 1",
+        "TIME 1",
+        "TIME1",
+        "CASA"
+      ) ?? cells[1];
     const pais2Raw =
-      pickRowField(row, "PAIS 2", "PAIS2", "PAIS_2", "PAÍS 2") ?? cells[2];
-    const pais2 = pais2Raw != null && pais2Raw !== "" ? parsePais(pais2Raw) : null;
+      pickRowField(
+        row,
+        "PAIS 2",
+        "PAIS2",
+        "PAIS_2",
+        "PAÍS 2",
+        "TIME 2",
+        "TIME2",
+        "VISITANTE"
+      ) ?? cells[2];
+
+    const pais1 = parsePais(stripEmojisForTextCell(pais1Raw));
+    const pais2Clean = stripEmojisForTextCell(pais2Raw ?? "");
+    const pais2 =
+      pais2Raw != null && String(pais2Raw).trim() !== ""
+        ? parsePais(pais2Clean)
+        : null;
 
     if (!pais1) return;
 
@@ -561,6 +664,86 @@ function groupJogosMataMataPorFase(jogos) {
     byFase[jogo.fase].push(jogo);
   });
   return byFase;
+}
+
+function isHeaderJogosFaseGrupos(c0, c1) {
+  const a = normKey(c0);
+  const b = normKey(c1);
+  if (a === "DATA" && (b === "HORA" || b.includes("HORA"))) return true;
+  if (a === "DATA" && (b.includes("PAIS") || b.includes("SELECAO"))) return true;
+  return false;
+}
+
+/**
+ * Aba Jogos: DATA | HORA | PAÍS 1 | PAÍS 2 (opc.: GRUPO, RODADA).
+ * DATA em formato brasileiro **dia/mês[/ano]** (11/06 = 11 de junho), além de DATE() ou serial.
+ * Nomes de país podem vir com emoji (planilha); normaliza com parsePais após strip.
+ */
+function parseJogosFaseGruposRows(rows) {
+  const out = [];
+
+  rows.forEach((row) => {
+    let dataRaw;
+    let horaRaw;
+    let pais1Raw;
+    let pais2Raw;
+    let grupoRaw;
+
+    if (Array.isArray(row)) {
+      if (row.length < 4) return;
+      if (isHeaderJogosFaseGrupos(row[0], row[1])) return;
+      dataRaw = row[0];
+      horaRaw = row[1];
+      pais1Raw = row[2];
+      pais2Raw = row[3];
+      grupoRaw = row.length >= 5 ? row[4] : undefined;
+    } else {
+      dataRaw = pickRowField(row, "DATA", "DATE", "DIA");
+      horaRaw = pickRowField(row, "HORA", "HORARIO", "HORÁRIO");
+      pais1Raw = pickRowField(
+        row,
+        "PAIS 1",
+        "PAIS1",
+        "PAIS_1",
+        "PAÍS 1",
+        "TIME 1",
+        "TIME1",
+        "CASA"
+      );
+      pais2Raw = pickRowField(
+        row,
+        "PAIS 2",
+        "PAIS2",
+        "PAIS_2",
+        "PAÍS 2",
+        "TIME 2",
+        "TIME2",
+        "VISITANTE"
+      );
+      grupoRaw = pickRowField(row, "GRUPO", "GRUPO_");
+    }
+
+    const dataRawP = jogoDataCellToPrimitive(dataRaw);
+    const data = dataRawP != null ? String(dataRawP).trim() : "";
+    const hora = horaRaw != null ? String(horaRaw).trim() : "";
+
+    const pais1 = parsePais(stripEmojisForTextCell(pais1Raw));
+    const pais2 = parsePais(stripEmojisForTextCell(pais2Raw));
+    if (!pais1 || !pais2) return;
+
+    const grupo = grupoRaw != null ? parseGrupo(grupoRaw) : "";
+
+    out.push({
+      data,
+      hora,
+      pais1,
+      pais2,
+      grupo: grupo || undefined,
+      confronto: formatConfrontoLabel(pais1, pais2),
+    });
+  });
+
+  return out;
 }
 
 function joinMataMataPalpitesResultados(palpites, resultadosAdvance) {
@@ -1240,6 +1423,7 @@ async function loadFromGoogleSheets() {
   const palpitesMmRaw = await loadSheetTab(SHEETS_CONFIG.palpitesMataMata);
   const resultadosMmRaw = await loadSheetTab(SHEETS_CONFIG.resultadosMataMata);
   const jogosMmRaw = await loadSheetTab(SHEETS_CONFIG.jogosMataMata);
+  const jogosRaw = await loadSheetTab(SHEETS_CONFIG.jogos);
   const artilheiroRaw = await loadSheetTab(SHEETS_CONFIG.artilheiro);
   const resultadoArtilheirosRaw = await loadSheetTab(
     SHEETS_CONFIG.resultadoArtilheiros
@@ -1267,6 +1451,7 @@ async function loadFromGoogleSheets() {
   const mataMata = joinMataMataPalpitesResultados(palpitesMm, mmAdvance);
   const jogosMataMata = parseJogosMataMata(jogosMmRaw);
   const jogosMataMataPorFase = groupJogosMataMataPorFase(jogosMataMata);
+  const jogos = parseJogosFaseGruposRows(jogosRaw);
   const artilheiro = parseArtilheiroRows(artilheiroRaw);
   const resultadoArtilheiros = parseResultadoArtilheiroRows(
     resultadoArtilheirosRaw
@@ -1281,6 +1466,7 @@ async function loadFromGoogleSheets() {
     mmResultadosPorFase,
     jogosMataMata,
     jogosMataMataPorFase,
+    jogos,
     artilheiro,
     resultadoArtilheiros,
     stats: {
@@ -1291,6 +1477,7 @@ async function loadFromGoogleSheets() {
       palpitesMataMata: palpitesMm.length,
       resultadosMataMata: mmAdvance.size,
       jogosMataMata: jogosMataMata.length,
+      jogos: jogos.length,
       artilheiro: artilheiro.length,
       resultadoArtilheiros: resultadoArtilheiros.length,
     },
@@ -1309,6 +1496,7 @@ function clearSheetData() {
   MOCK_DATA.mmResultadosPorFase = {};
   MOCK_DATA.jogosMataMata = [];
   MOCK_DATA.jogosMataMataPorFase = {};
+  MOCK_DATA.jogos = [];
   MOCK_DATA.artilheiro = [];
   MOCK_DATA.resultadoArtilheiros = [];
 }
@@ -1364,6 +1552,7 @@ async function applyGoogleSheetsToMockData() {
     mmResultadosPorFase,
     jogosMataMata,
     jogosMataMataPorFase,
+    jogos,
     artilheiro,
     resultadoArtilheiros,
     stats,
@@ -1386,6 +1575,7 @@ async function applyGoogleSheetsToMockData() {
   MOCK_DATA.mmResultadosPorFase = mmResultadosPorFase || {};
   MOCK_DATA.jogosMataMata = jogosMataMata || [];
   MOCK_DATA.jogosMataMataPorFase = jogosMataMataPorFase || {};
+  MOCK_DATA.jogos = jogos || [];
   MOCK_DATA.jogadoresPlanilha = jogadoresComPalpitesVisiveis(
     faseGrupos,
     mataMata
@@ -1401,6 +1591,7 @@ async function applyGoogleSheetsToMockData() {
     palpitesMataMata: stats.palpitesMataMata,
     resultadosMataMata: stats.resultadosMataMata,
     jogosMataMata: stats.jogosMataMata,
+    jogos: stats.jogos,
     artilheiro: stats.artilheiro,
     resultadoArtilheiros: stats.resultadoArtilheiros,
   };
