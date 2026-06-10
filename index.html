@@ -48,6 +48,7 @@
     <button class="nav-tab" data-section="groups">Grupos</button>
     <button class="nav-tab" data-section="knockout">Mata-Mata</button>
     <button class="nav-tab" data-section="bracket">Chaveamento</button>
+    <button class="nav-tab" data-section="picks">Artilheiro</button>
   </nav>
 
   <main class="container" id="main-container">
@@ -120,6 +121,33 @@
       </div>
     </section>
 
+    <!-- PALPITES ARTILHEIRO -->
+    <section id="picks" class="section" aria-labelledby="picks-heading">
+      <div class="picks-page view-capture">
+        <div class="section-header picks-header">
+          <div>
+            <h2 id="picks-heading" class="section-title picks-title">Palpites · Artilheiro</h2>
+          </div>
+          <span class="section-tag section-tag--picks">GOLS</span>
+        </div>
+        <div class="picks-panel">
+          <div class="arti-ambient" aria-hidden="true">
+            <span class="arti-ambient__orb arti-ambient__orb--a"></span>
+            <span class="arti-ambient__orb arti-ambient__orb--b"></span>
+            <span class="arti-ambient__grain"></span>
+          </div>
+          <div class="arti-bubble-wrap" id="arti-bubble-wrap">
+            <canvas
+              id="arti-bubble-canvas"
+              aria-label="Mapa de bolhas: artilheiros oficiais e palpites"
+              role="img"
+            ></canvas>
+            <div id="arti-bubble-tooltip" class="arti-bubble-tooltip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- CHAVEAMENTO OFICIAL -->
     <section id="bracket" class="section" aria-label="Chaveamento oficial">
       <div class="bracket-page view-capture">
@@ -129,7 +157,7 @@
         <footer class="bracket-footer">
           <p class="bracket-note">
             <span class="bracket-note-icon" aria-hidden="true">!</span>
-            Jogos oficiais (aba <strong>JOGOS MATA MATA</strong>). Ao lado de cada país: quem pontuou ao acertar o palpite na fase.
+            Jogos oficiais (aba <strong>JOGOS MATA MATA</strong>). Em oitavas, quartas e semi: emojis de todos os acertadores; passe o rato (ou foco com teclado) na linha do país para ver nomes completos. Na final e no campeão, a lista com nomes fica sempre visível.
           </p>
           <div class="bracket-summary" id="bracket-summary" aria-label="Resumo da pontuação mata-mata"></div>
         </footer>
@@ -143,13 +171,28 @@
       <span>Carregando planilha…</span>
     </div>
     <p class="sheet-status" id="sheet-status" hidden></p>
-    <button type="button" class="btn-sheet-refresh" id="btn-sheet-refresh" hidden>
-      ↻ Atualizar planilha
-    </button>
+    <div class="sheet-bar__actions">
+      <button
+        type="button"
+        class="btn-sound-toggle"
+        id="btn-sound-toggle"
+        aria-label="Sons do site"
+        title="Sons suaves ao navegar (clique para silenciar)"
+        aria-pressed="false"
+      >
+        🔊
+      </button>
+      <button type="button" class="btn-sheet-refresh" id="btn-sheet-refresh" hidden>
+        ↻ Atualizar planilha
+      </button>
+    </div>
   </footer>
 
   <script src="mockData.js"></script>
   <script src="sheets-loader.js"></script>
+  <script src="sounds.js"></script>
+  <script src="arti-scorer-photos.js"></script>
+  <script src="arti-bubbles.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

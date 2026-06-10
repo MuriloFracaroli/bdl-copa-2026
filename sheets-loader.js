@@ -5,6 +5,9 @@
  * Aba Palpites Mata-Mata — FASE + países (longo ou matriz por jogador)
  * Aba Resultados do Mata-Mata — FASE + países classificados
  * Aba JOGOS MATA MATA — FASE, PAIS 1, PAIS 2 (confrontos)
+ * Aba Artilheiro — NOME, ARTILHEIRO (jogador da copa), GOLS (ex.: "11 gols")
+ * Aba «Resultados Artilheiros» — ranking oficial: POS/ORDEM + ATLETA/ARTILHEIRO + PAÍS (opc.) + GOLS (ou atleta + gols / atleta + país + gols).
+ * Cuidado: «Resultado Artilheiros» (sem s) não é esta aba; o gviz pode devolver a primeira aba e o parse zera os dados.
  * https://docs.google.com/spreadsheets/d/1iQ1xBKKcgRA8ESFQdZp8-ZWUWZrxc62a14aTy8UN4Ig
  */
 
@@ -29,6 +32,13 @@ const SHEETS_CONFIG = {
   jogosMataMata: {
     sheetName: "JOGOS MATA MATA",
     gid: "560138314",
+  },
+  artilheiro: {
+    sheetName: "Artilheiro",
+  },
+  resultadoArtilheiros: {
+    /** Nome real da aba na planilha COPA_BDL (plural «Resultados»). */
+    sheetName: "Resultados Artilheiros",
   },
 };
 
@@ -110,11 +120,50 @@ function isHeaderGrupoPais(c0, c1) {
   return a === "GRUPO" || (a.includes("GRUPO") && b.includes("PAIS"));
 }
 
+function isHeaderArtilheiro(c0, c1) {
+  const a = normKey(c0);
+  const b = normKey(c1);
+  return a === "NOME" && (b === "ARTILHEIRO" || b.includes("ARTILHEIRO"));
+}
+
+/** Extrai número de células como "11 gols", "7", 9. */
+function parseGolsArtilheiroCell(raw) {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const m = s.match(/(\d+(?:[.,]\d+)?)/);
+  if (!m) return null;
+  const n = Number(m[1].replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Primeira URL http(s) na célula (ex.: coluna Foto com texto extra ou fórmula). */
+function extractPhotoUrlFromCell(raw) {
+  if (raw === undefined || raw === null) return "";
+  const s = String(raw).trim();
+  if (!s) return "";
+  const firstToken = s.split(/\s+/)[0];
+  if (/^https?:\/\//i.test(firstToken))
+    return firstToken.replace(/[,;.]+$/u, "");
+  const m = s.match(/https?:\/\/[^\s"'<>\]]+/iu);
+  return m ? m[0].replace(/[,;.]+$/u, "") : "";
+}
+
 /** Lê valor de objeto de linha (gviz) com rótulos normalizados. */
 function pickRowField(row, ...keys) {
   for (const key of keys) {
     const k = normKey(key);
     if (row[k] !== undefined && row[k] !== "") return row[k];
+  }
+  return undefined;
+}
+
+/** Como pickRowField, mas considera string vazia (célula em branco na planilha). */
+function pickRowCell(row, ...keys) {
+  for (const key of keys) {
+    const k = normKey(key);
+    if (row[k] !== undefined) return row[k];
   }
   return undefined;
 }
@@ -812,6 +861,318 @@ function parseResultadosMap(rows) {
   return { map, gruposOficiais };
 }
 
+/**
+ * Aba Artilheiro: NOME | ARTILHEIRO (atleta) | GOLS (texto ou número).
+ * Ignora linha TOTAL e cabeçalho.
+ */
+function parseArtilheiroRows(rows) {
+  const out = [];
+
+  rows.forEach((row) => {
+    let nomeCol, artilheiroCol, golsRaw;
+
+    if (Array.isArray(row)) {
+      if (row.length < 2) return;
+      if (isHeaderArtilheiro(row[0], row[1])) return;
+
+      nomeCol = row[0];
+      artilheiroCol = row.length >= 2 ? row[1] : "";
+      golsRaw = row.length >= 3 ? row[2] : "";
+    } else {
+      nomeCol = pickRowField(row, "NOME", "JOGADOR", "PARTICIPANTE");
+      artilheiroCol = pickRowCell(
+        row,
+        "ARTILHEIRO",
+        "ARTILHEIRO COPA",
+        "JOGADOR COPA",
+        "ATLETA"
+      );
+      golsRaw = pickRowCell(row, "GOLS", "GOL", "GOL(S)");
+    }
+
+    if (nomeCol == null || String(nomeCol).trim() === "") return;
+    if (normKey(nomeCol) === "TOTAL") return;
+
+    const jogador = parseJogador(nomeCol);
+    if (!jogador) return;
+
+    const artilheiro =
+      artilheiroCol != null ? String(artilheiroCol).trim() : "";
+    const gols = parseGolsArtilheiroCell(golsRaw);
+
+    out.push({
+      jogador,
+      artilheiro,
+      gols,
+    });
+  });
+
+  return out;
+}
+
+/** Primeira linha parece cabeçalho da aba Palpites (GRUPO | PAIS). */
+function resultadoArtilheiroLooksLikePalpitesTab(rows) {
+  const first = rows[0];
+  if (!first) return false;
+  const cells = rowToCells(first);
+  if (cells.length >= 2 && isHeaderGrupoPais(cells[0], cells[1])) return true;
+  return false;
+}
+
+function headerCellsToNormIndexMap(headerCells) {
+  const m = {};
+  headerCells.forEach((cell, idx) => {
+    const k = normKey(cell);
+    if (k) m[k] = idx;
+  });
+  return m;
+}
+
+function getColIndexFromHeaderMap(m, patterns) {
+  for (const p of patterns) {
+    const pn = normKey(p);
+    if (pn && m[pn] !== undefined) return m[pn];
+  }
+  for (const p of patterns) {
+    const pn = normKey(p);
+    if (!pn) continue;
+    for (const [key, idx] of Object.entries(m)) {
+      if (key.includes(pn)) return idx;
+    }
+  }
+  return -1;
+}
+
+/** Fallback: linhas com duas colunas (atleta | gols), sem GRUPO. */
+function parseResultadoArtilheiroSimpleTwoCol(rows) {
+  const out = [];
+  rows.forEach((row) => {
+    if (!Array.isArray(row)) return;
+    if (row.length < 2) return;
+    if (isHeaderGrupoPais(row[0], row[1])) return;
+    if (normKey(row[0]) === "TOTAL") return;
+    if (parseGrupo(row[0])) return;
+    const atleta = String(row[0] || "").trim();
+    if (!atleta) return;
+    const nk = normKey(atleta);
+    if (
+      nk === "POS" ||
+      nk === "ORDEM" ||
+      nk === "RANK" ||
+      nk === "ATLETA" ||
+      nk === "ARTILHEIRO" ||
+      nk === "GOLEADOR" ||
+      nk === "GOLS" ||
+      nk === "TOTAL"
+    )
+      return;
+    if (row.length >= 3) {
+      const golsLast = parseGolsArtilheiroCell(row[row.length - 1]);
+      const golsMid = parseGolsArtilheiroCell(row[1]);
+      if (Number.isFinite(golsLast) && !Number.isFinite(golsMid)) {
+        const pais = String(row[1] || "").trim();
+        const gols = golsLast;
+        out.push({ pos: out.length + 1, atleta, gols, pais, foto: "", assistencias: null });
+        return;
+      }
+    }
+    const gols = parseGolsArtilheiroCell(row[1]);
+    out.push({ pos: out.length + 1, atleta, gols, pais: "", foto: "", assistencias: null });
+  });
+  return out;
+}
+
+/**
+ * Aba Resultados Artilheiros — classificação oficial de goleadores.
+ * Cabeçalho: POS, ATLETA/ARTILHEIRO, PAÍS (opcional), GOLS, ASSISTÊNCIAS (opcional), FOTO/URL (opcional, ex.: coluna «Foto» com link da imagem).
+ * Ignora linha TOTAL; evita confundir com a aba Palpites (GRUPO|PAIS).
+ */
+function parseResultadoArtilheiroRows(rows) {
+  if (!rows.length) return [];
+  if (resultadoArtilheiroLooksLikePalpitesTab(rows)) {
+    console.warn(
+      'Aba «Resultados Artilheiros»: conteúdo parece Palpites (GRUPO/PAIS). Confira o nome da aba no Sheets ou defina gid em SHEETS_CONFIG.resultadoArtilheiros.'
+    );
+    return [];
+  }
+
+  const allObjects = rows.every((r) => r && !Array.isArray(r));
+  if (allObjects) {
+    const outObj = [];
+    rows.forEach((row) => {
+      const g = pickRowField(row, "GRUPO", "GRUPO_");
+      if (g != null && parseGrupo(g)) return;
+
+      const atletaRaw = pickRowCell(
+        row,
+        "ATLETA",
+        "GOLEADOR",
+        "ARTILHEIRO REAL",
+        "ARTILHEIRO OFICIAL",
+        "NICK REAL",
+        "ARTILHEIRO",
+        "NOME"
+      );
+      const atleta =
+        atletaRaw != null ? String(atletaRaw).trim() : "";
+      if (!atleta || normKey(atleta) === "TOTAL") return;
+
+      const posRaw = pickRowField(row, "POS", "POSICAO", "POSIÇÃO", "#", "ORDEM", "RANK");
+      let pos = Number(posRaw);
+      if (!Number.isFinite(pos) || pos < 1) pos = outObj.length + 1;
+
+      const golsRaw = pickRowCell(row, "GOLS", "GOL", "GOL(S)");
+      const gols = parseGolsArtilheiroCell(golsRaw);
+
+      const paisRaw = pickRowCell(
+        row,
+        "PAIS",
+        "PAÍS",
+        "SELECAO",
+        "SELEÇÃO",
+        "NACAO",
+        "NAÇÃO",
+        "NACIONALIDADE",
+        "COUNTRY"
+      );
+      const pais = paisRaw != null ? String(paisRaw).trim() : "";
+
+      const fotoRaw = pickRowCell(
+        row,
+        "FOTO",
+        "FOTOS",
+        "FOTO DO ATLETA",
+        "FOTO DO JOGADOR",
+        "URL_FOTO",
+        "FOTO_URL",
+        "IMAGEM",
+        "IMG",
+        "PHOTO",
+        "AVATAR",
+        "LINK_FOTO",
+        "URL IMAGEM"
+      );
+      const foto = extractPhotoUrlFromCell(fotoRaw);
+
+      const assistRaw = pickRowCell(
+        row,
+        "ASSISTENCIAS",
+        "ASSISTÊNCIAS",
+        "ASSIST",
+        "ASSISTS",
+        "AST",
+        "PASSE",
+        "PASSES GOL",
+        "PASSES DE GOL"
+      );
+      const assistencias = parseGolsArtilheiroCell(assistRaw);
+
+      outObj.push({ pos, atleta, gols, pais, foto, assistencias });
+    });
+    return outObj.sort((a, b) => a.pos - b.pos || a.atleta.localeCompare(b.atleta));
+  }
+
+  let headerIdx = -1;
+  let colMap = null;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const cells = rowToCells(rows[i]);
+    if (!cells.some((c) => c !== "" && c != null)) continue;
+    if (parseGrupo(cells[0])) continue;
+    const m = headerCellsToNormIndexMap(cells);
+    const golsI = getColIndexFromHeaderMap(m, ["GOLS", "GOL", "GOL(S)"]);
+    const atletaI = getColIndexFromHeaderMap(m, [
+      "ATLETA",
+      "GOLEADOR",
+      "ARTILHEIRO REAL",
+      "ARTILHEIRO OFICIAL",
+      "NICK REAL",
+      "ARTILHEIRO",
+      "NOME",
+    ]);
+    if (golsI >= 0 && atletaI >= 0) {
+      headerIdx = i;
+      const paisI = getColIndexFromHeaderMap(m, [
+        "PAIS",
+        "PAÍS",
+        "SELECAO",
+        "SELEÇÃO",
+        "NACAO",
+        "NAÇÃO",
+        "NACIONALIDADE",
+        "COUNTRY",
+      ]);
+      const fotoI = getColIndexFromHeaderMap(m, [
+        "FOTO",
+        "FOTOS",
+        "FOTO DO ATLETA",
+        "FOTO DO JOGADOR",
+        "URL_FOTO",
+        "FOTO_URL",
+        "IMAGEM",
+        "IMG",
+        "PHOTO",
+        "AVATAR",
+        "LINK_FOTO",
+        "URL IMAGEM",
+      ]);
+      const assistI = getColIndexFromHeaderMap(m, [
+        "ASSISTENCIAS",
+        "ASSISTÊNCIAS",
+        "ASSIST",
+        "ASSISTS",
+        "AST",
+        "PASSE",
+        "PASSES GOL",
+        "PASSES DE GOL",
+      ]);
+      colMap = {
+        atleta: atletaI,
+        gols: golsI,
+        pos: getColIndexFromHeaderMap(m, ["POS", "POSICAO", "POSIÇÃO", "#", "ORDEM", "RANK"]),
+        pais: paisI,
+        foto: fotoI,
+        assistencias: assistI,
+      };
+      break;
+    }
+  }
+
+  if (headerIdx < 0 || !colMap) {
+    const simple = parseResultadoArtilheiroSimpleTwoCol(rows);
+    if (simple.length) return simple;
+    return [];
+  }
+
+  const out = [];
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const cells = rowToCells(rows[r]);
+    if (!cells.some((c) => c !== "" && c != null)) continue;
+    const atleta = String(cells[colMap.atleta] ?? "").trim();
+    if (!atleta || normKey(atleta) === "TOTAL") continue;
+
+    let pos =
+      colMap.pos >= 0 ? Number(cells[colMap.pos]) : NaN;
+    if (!Number.isFinite(pos) || pos < 1) pos = out.length + 1;
+
+    const gols = parseGolsArtilheiroCell(cells[colMap.gols]);
+    const pais =
+      colMap.pais >= 0 ? String(cells[colMap.pais] ?? "").trim() : "";
+    const fotoRaw =
+      colMap.foto >= 0 ? String(cells[colMap.foto] ?? "").trim() : "";
+    const foto = extractPhotoUrlFromCell(fotoRaw);
+    const assistRaw =
+      colMap.assistencias >= 0
+        ? String(cells[colMap.assistencias] ?? "").trim()
+        : "";
+    const assistencias = assistRaw
+      ? parseGolsArtilheiroCell(assistRaw)
+      : null;
+    out.push({ pos, atleta, gols, pais, foto, assistencias });
+  }
+
+  return out.sort((a, b) => a.pos - b.pos || a.atleta.localeCompare(b.atleta));
+}
+
 function joinPalpitesComResultados(palpites, resultadosMap, gruposOficiaisResultados) {
   const faseGrupos = [];
   const gruposOficiais = { ...gruposOficiaisResultados };
@@ -879,6 +1240,10 @@ async function loadFromGoogleSheets() {
   const palpitesMmRaw = await loadSheetTab(SHEETS_CONFIG.palpitesMataMata);
   const resultadosMmRaw = await loadSheetTab(SHEETS_CONFIG.resultadosMataMata);
   const jogosMmRaw = await loadSheetTab(SHEETS_CONFIG.jogosMataMata);
+  const artilheiroRaw = await loadSheetTab(SHEETS_CONFIG.artilheiro);
+  const resultadoArtilheirosRaw = await loadSheetTab(
+    SHEETS_CONFIG.resultadoArtilheiros
+  );
 
   const palpites = parsePalpitesRows(palpitesRaw);
   const { map: resultadosMap, gruposOficiais: gruposResultados } =
@@ -902,6 +1267,10 @@ async function loadFromGoogleSheets() {
   const mataMata = joinMataMataPalpitesResultados(palpitesMm, mmAdvance);
   const jogosMataMata = parseJogosMataMata(jogosMmRaw);
   const jogosMataMataPorFase = groupJogosMataMataPorFase(jogosMataMata);
+  const artilheiro = parseArtilheiroRows(artilheiroRaw);
+  const resultadoArtilheiros = parseResultadoArtilheiroRows(
+    resultadoArtilheirosRaw
+  );
 
   return {
     faseGrupos,
@@ -912,6 +1281,8 @@ async function loadFromGoogleSheets() {
     mmResultadosPorFase,
     jogosMataMata,
     jogosMataMataPorFase,
+    artilheiro,
+    resultadoArtilheiros,
     stats: {
       palpites: palpites.length,
       resultados: resultadosMap.size,
@@ -920,6 +1291,8 @@ async function loadFromGoogleSheets() {
       palpitesMataMata: palpitesMm.length,
       resultadosMataMata: mmAdvance.size,
       jogosMataMata: jogosMataMata.length,
+      artilheiro: artilheiro.length,
+      resultadoArtilheiros: resultadoArtilheiros.length,
     },
   };
 }
@@ -936,6 +1309,8 @@ function clearSheetData() {
   MOCK_DATA.mmResultadosPorFase = {};
   MOCK_DATA.jogosMataMata = [];
   MOCK_DATA.jogosMataMataPorFase = {};
+  MOCK_DATA.artilheiro = [];
+  MOCK_DATA.resultadoArtilheiros = [];
 }
 
 /** Posição 1–4 na fase de grupos (palpite contabilizado). */
@@ -989,6 +1364,8 @@ async function applyGoogleSheetsToMockData() {
     mmResultadosPorFase,
     jogosMataMata,
     jogosMataMataPorFase,
+    artilheiro,
+    resultadoArtilheiros,
     stats,
   } = await loadFromGoogleSheets();
 
@@ -1013,6 +1390,8 @@ async function applyGoogleSheetsToMockData() {
     faseGrupos,
     mataMata
   );
+  MOCK_DATA.artilheiro = artilheiro || [];
+  MOCK_DATA.resultadoArtilheiros = resultadoArtilheiros || [];
 
   return {
     rows: stats.palpites,
@@ -1022,5 +1401,7 @@ async function applyGoogleSheetsToMockData() {
     palpitesMataMata: stats.palpitesMataMata,
     resultadosMataMata: stats.resultadosMataMata,
     jogosMataMata: stats.jogosMataMata,
+    artilheiro: stats.artilheiro,
+    resultadoArtilheiros: stats.resultadoArtilheiros,
   };
 }

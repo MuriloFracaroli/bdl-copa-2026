@@ -190,8 +190,24 @@ function getCountryInfo(paisKey) {
   );
 }
 
+/** Larguras PNG suportadas por https://flagcdn.com (w64 etc. não existem → 404). */
+const FLAGCDN_WIDTHS = [20, 40, 80, 160, 320, 640, 1280, 2560];
+
+function flagCdnSnapWidth(requested) {
+  const n = Number(requested);
+  if (!Number.isFinite(n) || n <= 0) return 40;
+  if (FLAGCDN_WIDTHS.includes(n)) return n;
+  return FLAGCDN_WIDTHS.find((w) => w >= n) || 2560;
+}
+
 function flagUrl(codigo, size = 40) {
-  return `https://flagcdn.com/w${size}/${codigo}.png`;
+  const w = flagCdnSnapWidth(size);
+  const raw = String(codigo ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  const code = raw || "un";
+  return `https://flagcdn.com/w${w}/${code}.png`;
 }
 
 function hasPlanilhaData() {
@@ -689,6 +705,8 @@ function updateSheetStatus({
   palpitesMataMata,
   resultadosMataMata,
   jogosMataMata,
+  artilheiro,
+  resultadoArtilheiros,
   error,
 }) {
   const status = document.getElementById("sheet-status");
@@ -710,7 +728,13 @@ function updateSheetStatus({
         : "";
     const jogos =
       jogosMataMata != null ? ` · ${jogosMataMata} jogo(s) mata-mata` : "";
-    status.textContent = `Planilha conectada · ${rows} palpites (Palpites) · ${grupos} grupo(s)${res}${mm}${jogos}`;
+    const art =
+      artilheiro != null ? ` · ${artilheiro} linha(s) Artilheiro` : "";
+    const ra =
+      resultadoArtilheiros != null
+        ? ` · ${resultadoArtilheiros} linha(s) Resultados Artilheiros`
+        : "";
+    status.textContent = `Planilha conectada · ${rows} palpites (Palpites) · ${grupos} grupo(s)${res}${mm}${jogos}${art}${ra}`;
   } else {
     status.className = "sheet-status sheet-status--warn";
     status.textContent = error || "Não foi possível ler a planilha.";
@@ -894,6 +918,7 @@ function renderGroupTabs(groups) {
 
   el.querySelectorAll(".group-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (typeof BolaoSounds !== "undefined") BolaoSounds.playSubTab();
       activeGroup = btn.dataset.group;
       renderGroups();
     });
@@ -1116,32 +1141,85 @@ function getAcertadoresForPais(fase, pais, acertadoresIndex) {
   );
 }
 
-function renderBracketScorerChip(entry, { compact = false } = {}) {
+/** Final e campeão: lista sempre aberta com nome completo de cada acertador. */
+const BRACKET_FULL_NAME_PHASES = new Set(["final", "campeao"]);
+
+function renderScorerEmojiRowLi(entry) {
   const nome = entry.meta?.nome || entry.jogador;
-  const short = compact && nome.length > 9 ? `${nome.slice(0, 8)}…` : nome;
-  return `<li class="bracket-scorer-chip" title="${escapeHtml(nome)}">
-    <span class="bracket-scorer-avatar" style="border-color:${entry.meta.cor}">${entry.meta.avatar}</span>
-    <span class="bracket-scorer-name">${escapeHtml(short)}</span>
+  return `<li class="bracket-scorer-emoji-slot bracket-scorer-emoji-slot--row" title="${escapeHtml(nome)}">
+    <span class="bracket-scorer-emoji" aria-hidden="true">${entry.meta.avatar}</span>
   </li>`;
 }
 
-function renderTeamScorers(acertadores, paisNome) {
+function renderTeamScorers(acertadores, paisNome, fase) {
   if (!acertadores.length) return "";
-  return `<ul class="bracket-team-scorers" aria-label="Pontuaram ${escapeHtml(paisNome)}">
-    ${acertadores.map((e) => renderBracketScorerChip(e, { compact: true })).join("")}
-  </ul>`;
+
+  if (BRACKET_FULL_NAME_PHASES.has(fase)) {
+    const label = `${acertadores.length} acertador(es) em ${escapeHtml(paisNome)}`;
+    const rows = acertadores
+      .map((e) => {
+        const nome = e.meta?.nome || e.jogador;
+        return `<li class="bracket-scorers-final-item">
+    <span class="bracket-scorers-final-emoji" aria-hidden="true">${e.meta.avatar}</span>
+    <span class="bracket-scorers-final-name">${escapeHtml(nome)}</span>
+  </li>`;
+      })
+      .join("");
+    return `<div class="bracket-team-scorers-final">
+    <ul class="bracket-scorers-final-list" aria-label="${label}">${rows}</ul>
+  </div>`;
+  }
+
+  const n = acertadores.length;
+  const stripLabel = `${n} acertador(es) em ${escapeHtml(paisNome)}`;
+  const popLabel = `Acertadores em ${escapeHtml(paisNome)} — nomes completos`;
+  const stripList = acertadores.map((e) => renderScorerEmojiRowLi(e)).join("");
+  const popRows = acertadores
+    .map((e) => {
+      const nome = e.meta?.nome || e.jogador;
+      return `<li class="bracket-team-popover-row">
+    <span class="bracket-team-popover-emoji" aria-hidden="true">${e.meta.avatar}</span>
+    <span class="bracket-team-popover-name">${escapeHtml(nome)}</span>
+  </li>`;
+    })
+    .join("");
+
+  return `<div class="bracket-team-scorers-hover-zone">
+    <ul class="bracket-scorers-emoji-row bracket-scorers-emoji-row--strip" aria-label="${stripLabel}">${stripList}</ul>
+    <aside class="bracket-team-popover" aria-label="${popLabel}" role="region">
+      <div class="bracket-team-popover-inner">
+        <ul class="bracket-team-popover-list">${popRows}</ul>
+      </div>
+    </aside>
+  </div>`;
 }
 
 function bracketTeamLine(paisKey, fase, acertadoresIndex) {
   const info = getCountryInfo(paisKey);
   const acertadores = getAcertadoresForPais(fase, paisKey, acertadoresIndex);
-  return `<div class="bracket-team-line">
+  const n = acertadores.length;
+  const countBadge =
+    n > 0
+      ? `<span class="bracket-acertadores-count" title="${n} jogador(es) pontuaram neste país">${n}</span>`
+      : "";
+  const fullPhase = BRACKET_FULL_NAME_PHASES.has(fase);
+  const head = `<div class="bracket-team-line-head">
     <div class="bracket-team">
-      <img class="bracket-team-flag" src="${flagUrl(info.codigo, 40)}" alt="" width="20" height="14" loading="lazy" />
+      <img class="bracket-team-flag" src="${flagUrl(info.codigo, 80)}" alt="" width="28" height="20" loading="lazy" />
       <span class="bracket-team-name">${escapeHtml(info.nome)}</span>
     </div>
-    ${renderTeamScorers(acertadores, info.nome)}
+    ${countBadge}
+    </div>`;
+  const scorers = renderTeamScorers(acertadores, info.nome, fase);
+  const inner = `${head}${scorers}`;
+  if (!fullPhase && n > 0) {
+    return `<div class="bracket-team-line bracket-team-line--hover-legend">
+    <div class="bracket-team-hover-anchor" tabindex="0">
+    ${inner}
+    </div>
   </div>`;
+  }
+  return `<div class="bracket-team-line">${inner}</div>`;
 }
 
 function bracketMatchBadge(meta, index) {
@@ -1353,6 +1431,22 @@ function renderKnockout() {
   renderKnockoutScores(rankings, knockoutRows);
 }
 
+/* ---------- Guia Artilheiro — mapa de bolhas (arti-bubbles.js) ---------- */
+
+function renderPicksPage() {
+  const wrap = document.getElementById("arti-bubble-wrap");
+  if (!wrap) return;
+
+  if (!hasPlanilhaData()) {
+    if (typeof ArtiBubbles !== "undefined") ArtiBubbles.destroy();
+    wrap.hidden = true;
+    return;
+  }
+
+  wrap.hidden = false;
+  if (typeof ArtiBubbles !== "undefined") ArtiBubbles.render();
+}
+
 /* ---------- Navigation ---------- */
 
 function setContainerWidth(sectionId) {
@@ -1360,6 +1454,7 @@ function setContainerWidth(sectionId) {
   if (!container) return;
   container.classList.toggle("container--groups", sectionId === "groups");
   container.classList.toggle("container--bracket", sectionId === "bracket");
+  container.classList.toggle("container--picks", sectionId === "picks");
 }
 
 function initNavigation() {
@@ -1368,12 +1463,16 @@ function initNavigation() {
 
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
+      if (typeof BolaoSounds !== "undefined") BolaoSounds.playNav();
       const id = tab.dataset.section;
       tabs.forEach((t) => t.classList.toggle("active", t === tab));
       sections.forEach((s) => {
         s.classList.toggle("section--active", s.id === id);
       });
       setContainerWidth(id);
+      if (id === "picks" && typeof ArtiBubbles !== "undefined") {
+        requestAnimationFrame(() => ArtiBubbles.resize());
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
   });
@@ -1394,6 +1493,7 @@ function renderAll() {
   renderGroups();
   renderKnockout();
   renderBracket();
+  renderPicksPage();
 }
 
 async function loadSheetData() {
@@ -1432,10 +1532,15 @@ async function init() {
   renderAll();
   initNavigation();
 
+  if (typeof BolaoSounds !== "undefined") {
+    BolaoSounds.initToggle("btn-sound-toggle");
+  }
+
   const refreshBtn = document.getElementById("btn-sheet-refresh");
   if (refreshBtn && !refreshBtn.dataset.bound) {
     refreshBtn.dataset.bound = "1";
     refreshBtn.addEventListener("click", async () => {
+      if (typeof BolaoSounds !== "undefined") BolaoSounds.playRefresh();
       refreshBtn.disabled = true;
       setSheetLoading(true);
       try {
@@ -1443,11 +1548,13 @@ async function init() {
         updateSheetStatus({ ok: true, ...stats });
         renderHeader();
         renderAll();
+        if (typeof BolaoSounds !== "undefined") BolaoSounds.playSheetOk();
       } catch (err) {
         if (typeof clearSheetData === "function") clearSheetData();
         updateSheetStatus({ ok: false, error: String(err.message || err) });
         renderHeader();
         renderAll();
+        if (typeof BolaoSounds !== "undefined") BolaoSounds.playSheetError();
       } finally {
         setSheetLoading(false);
         refreshBtn.disabled = false;
