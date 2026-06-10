@@ -445,7 +445,10 @@ function parseMataMataPalpitesLong(rows) {
     const cells = rowToCells(row);
     if (!cells.length || isKnockoutMetaRow(cells)) return;
 
-    const fase = parseFase(pickRowField(row, "FASE") ?? cells[0]);
+    const fase =
+      parseFase(pickRowField(row, "FASE", "ETAPA", "RODADA")) ||
+      parseFase(cells[0]) ||
+      parseFase(cells[1]);
     if (!fase) return;
 
     const jogador = parseJogador(
@@ -472,7 +475,16 @@ function parseMataMataPalpitesLong(rows) {
 
     if (jogador) {
       const countries = new Set();
-      const start = normKey(cells[0]) === normKey(fase) ? 2 : 1;
+      let start = 1;
+      if (parseFase(cells[0]) && normKey(cells[0]) === normKey(fase)) {
+        start = 2;
+      } else if (
+        !parseFase(cells[0]) &&
+        parseJogador(cells[0]) &&
+        parseFase(cells[1])
+      ) {
+        start = 2;
+      }
       for (let i = start; i < cells.length; i++) {
         const pais = parsePais(cells[i]);
         if (pais && pais !== jogador) countries.add(pais);
@@ -648,6 +660,11 @@ function parseMataMataPalpites(rows) {
   const ufWide = fasesUnicas(wide);
   if (ufLong > ufWide) return long;
   if (ufWide > ufLong) return wide;
+  /**
+   * Matriz larga sem linhas-título de fase fica só em «oitavas» no deploy (gviz
+   * sem coluna «FASE» nomeada). Se o longo tiver linhas, costuma ser o formato certo.
+   */
+  if (ufWide === 1 && long.length > 0) return long;
   return long.length >= wide.length ? long : wide;
 }
 
@@ -671,8 +688,18 @@ function parseJogosMataMata(rows) {
     const cells = rowToCells(row);
     if (!cells.length || isKnockoutMetaRow(cells)) return;
 
-    const fase = parseFase(pickRowField(row, "FASE") ?? cells[0]);
+    const fase =
+      parseFase(pickRowField(row, "FASE", "ETAPA", "RODADA")) ||
+      parseFase(cells[0]) ||
+      parseFase(cells[1]);
     if (!fase) return;
+
+    const f0 = parseFase(cells[0]);
+    const f1 = parseFase(cells[1]);
+    let paisBaseIdx = 1;
+    if (f0 === fase) paisBaseIdx = 1;
+    else if (f1 === fase) paisBaseIdx = 2;
+    else paisBaseIdx = 1;
 
     const pais1Raw =
       pickRowField(
@@ -684,7 +711,7 @@ function parseJogosMataMata(rows) {
         "TIME 1",
         "TIME1",
         "CASA"
-      ) ?? cells[1];
+      ) ?? cells[paisBaseIdx];
     const pais2Raw =
       pickRowField(
         row,
@@ -695,7 +722,7 @@ function parseJogosMataMata(rows) {
         "TIME 2",
         "TIME2",
         "VISITANTE"
-      ) ?? cells[2];
+      ) ?? cells[paisBaseIdx + 1];
 
     const pais1 = parsePais(stripEmojisForTextCell(pais1Raw));
     const pais2Clean = stripEmojisForTextCell(pais2Raw ?? "");
