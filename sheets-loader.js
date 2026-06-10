@@ -609,8 +609,19 @@ function parseMataMataPalpites(rows) {
   }
 
   const long = parseMataMataPalpitesLong(rows);
-  if (long.length) return long;
-  return parseMataMataPalpitesWide(rows);
+  const wide = parseMataMataPalpitesWide(rows);
+  /**
+   * Se o «long» devolver poucas linhas (ruído / linhas-meta) mas a matriz larga
+   * tiver muito mais palpites, usar o wide — evita ficar só em oitavas no site
+   * em cache antigo ou com heurística long a falhar.
+   */
+  if (wide.length > 0 && long.length < wide.length) {
+    return wide;
+  }
+  if (long.length > 0) {
+    return long;
+  }
+  return wide;
 }
 
 function countryDisplayName(paisKey) {
