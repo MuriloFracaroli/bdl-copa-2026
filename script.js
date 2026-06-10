@@ -2231,6 +2231,33 @@ function rankingEntryForKey(rankings, key) {
   return rankings.find((r) => r.chavePlanilha === key) || null;
 }
 
+/**
+ * Linha da aba Artilheiro para a chave usada no X1 (lista de jogadores).
+ * O nome na aba Artilheiro pode ser id (LH), apelido ou nome à mostra; o select
+ * usa o texto da planilha. Cruzamos por `getPlayerMeta(...).id` e por chaves normalizadas.
+ */
+function artilheiroRowForDuelKey(playKey) {
+  const rows = MOCK_DATA.artilheiro || [];
+  if (!rows.length || !playKey) return null;
+  const metaSel = getPlayerMeta(playKey);
+  const selId = normKeyPlayer(metaSel.id || "");
+  const cand = new Set(
+    [playKey, metaSel.id, metaSel.nome]
+      .filter((x) => x != null && String(x).trim() !== "")
+      .map((x) => normKeyPlayer(x))
+  );
+
+  return (
+    rows.find((r) => {
+      if (!r || r.jogador == null) return false;
+      const mArt = getPlayerMeta(r.jogador);
+      const artId = normKeyPlayer(mArt.id || "");
+      if (selId && artId && selId === artId) return true;
+      return cand.has(normKeyPlayer(r.jogador));
+    }) || null
+  );
+}
+
 function renderDuelContent() {
   const body = document.getElementById("duel-body");
   const selA = document.getElementById("duel-select-a");
@@ -2403,9 +2430,8 @@ function renderDuelContent() {
     </div>`
       : "";
 
-  const artRows = MOCK_DATA.artilheiro || [];
-  const artA = artRows.find((r) => normKeyPlayer(r.jogador) === keyA);
-  const artB = artRows.find((r) => normKeyPlayer(r.jogador) === keyB);
+  const artA = artilheiroRowForDuelKey(keyA);
+  const artB = artilheiroRowForDuelKey(keyB);
   const artBlock =
     artA || artB
       ? `<div class="card card--glass" style="padding:0.85rem">

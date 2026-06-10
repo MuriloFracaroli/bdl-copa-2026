@@ -367,6 +367,13 @@ function parseFase(value) {
   return "";
 }
 
+/** Texto que é fase do mata-mata, não seleção (ex.: coluna "OITAVAS" no cabeçalho). */
+function isMataMataPhaseLabelPais(paisKey) {
+  const s = String(paisKey ?? "").trim();
+  if (!s) return false;
+  return Boolean(parseFase(s));
+}
+
 function mataMataKey(fase, pais) {
   return `${fase}|${parsePais(pais)}`;
 }
@@ -518,7 +525,12 @@ function parseMataMataPalpitesWide(rows) {
       headerIdx = i;
       countryCols = cells
         .map((c, idx) => ({ idx, pais: parsePais(c), label: normKey(c) }))
-        .filter((x) => x.idx >= countryStart && x.pais);
+        .filter(
+          (x) =>
+            x.idx >= countryStart &&
+            x.pais &&
+            !isMataMataPhaseLabelPais(x.pais)
+        );
       break;
     }
   }
@@ -565,6 +577,7 @@ function parseMataMataPalpitesWide(rows) {
     if (!jogador) continue;
 
     countryCols.forEach(({ idx, pais }) => {
+      if (!pais || isMataMataPhaseLabelPais(pais)) return;
       const mark = cells[idx];
       if (mark == null || mark === "" || mark === 0 || mark === false) return;
       const mk = normKey(mark);
@@ -610,18 +623,17 @@ function parseMataMataPalpites(rows) {
 
   const long = parseMataMataPalpitesLong(rows);
   const wide = parseMataMataPalpitesWide(rows);
-  /**
-   * Se o «long» devolver poucas linhas (ruído / linhas-meta) mas a matriz larga
-   * tiver muito mais palpites, usar o wide — evita ficar só em oitavas no site
-   * em cache antigo ou com heurística long a falhar.
-   */
-  if (wide.length > 0 && long.length < wide.length) {
-    return wide;
-  }
-  if (long.length > 0) {
-    return long;
-  }
-  return wide;
+
+  const fasesUnicas = (arr) => new Set(arr.map((p) => p.fase).filter(Boolean)).size;
+
+  if (!wide.length) return long;
+  if (!long.length) return wide;
+
+  const ufLong = fasesUnicas(long);
+  const ufWide = fasesUnicas(wide);
+  if (ufLong > ufWide) return long;
+  if (ufWide > ufLong) return wide;
+  return long.length >= wide.length ? long : wide;
 }
 
 function countryDisplayName(paisKey) {
@@ -781,7 +793,9 @@ function parseJogosFaseGruposRows(rows) {
 }
 
 function joinMataMataPalpitesResultados(palpites, resultadosAdvance) {
-  return palpites.map((p) => {
+  return palpites
+    .filter((p) => p.pais && !isMataMataPhaseLabelPais(p.pais))
+    .map((p) => {
     const key = mataMataKey(p.fase, p.pais);
     const classificou = resultadosAdvance.has(key);
     return {
