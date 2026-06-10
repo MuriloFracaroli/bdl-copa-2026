@@ -573,6 +573,21 @@ function parseMataMataPalpitesWide(rows) {
       jogadorCol = 0;
     }
 
+    /**
+     * Matriz com FASE na coluna B em cada linha: [Jogador | QUARTAS | …marcas],
+     * comum quando não há linhas-título de bloco nem coluna nomeada «FASE» no gviz.
+     */
+    const faseNaCol1 = cells[1] != null ? parseFase(cells[1]) : "";
+    if (
+      !faseDaColuna &&
+      faseNaCol1 &&
+      !parseFase(cells[0]) &&
+      parseJogador(cells[0])
+    ) {
+      fase = faseNaCol1;
+      jogadorCol = 0;
+    }
+
     const jogador = parseJogador(cells[jogadorCol]);
     if (!jogador) continue;
 
