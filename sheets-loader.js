@@ -525,17 +525,40 @@ function parseMataMataPalpitesWide(rows) {
 
   if (headerIdx < 0 || !countryCols.length) return [];
 
+  /** Blocos em que a coluna A é o jogador e a fase vem só em linhas-título (OITAVAS / QUARTAS / …). */
+  let currentFase = "oitavas";
+
   for (let r = headerIdx + 1; r < rows.length; r++) {
-    const cells = rowToCells(rows[r]);
+    const row = rows[r];
+    const cells = rowToCells(row);
     if (!cells.length || isKnockoutMetaRow(cells)) continue;
 
-    let fase = parseFase(cells[0]);
-    let jogadorCol = 0;
-    if (!fase) {
-      jogadorCol = 0;
-      fase = "oitavas";
-    } else {
+    const f0 = parseFase(cells[0]);
+    const jogadorNaCol1 = cells[1] != null ? parseJogador(cells[1]) : "";
+
+    if (f0) {
+      const temMarcaEmPais = countryCols.some(({ idx }) => {
+        const v = cells[idx];
+        return v != null && String(v).trim() !== "";
+      });
+      if (!temMarcaEmPais) {
+        currentFase = f0;
+        continue;
+      }
+    }
+
+    const faseDaColuna = parseFase(pickRowField(row, "FASE"));
+    let fase;
+    let jogadorCol;
+    if (faseDaColuna) {
+      fase = faseDaColuna;
+      jogadorCol = f0 && jogadorNaCol1 ? 1 : 0;
+    } else if (f0 && jogadorNaCol1) {
+      fase = f0;
       jogadorCol = 1;
+    } else {
+      fase = currentFase;
+      jogadorCol = 0;
     }
 
     const jogador = parseJogador(cells[jogadorCol]);
