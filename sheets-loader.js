@@ -490,7 +490,7 @@ function parseMataMataPalpitesLong(rows) {
         if (pais && pais !== jogador) countries.add(pais);
       }
       countries.forEach((pais) =>
-        palpites.push({ fase, jogador, pais, mmPaisDaPlanilha: false })
+        palpites.push({ fase, jogador, pais, mmPaisDaPlanilha: true })
       );
       return;
     }
@@ -505,7 +505,7 @@ function parseMataMataPalpitesLong(rows) {
             fase,
             jogador: j,
             pais,
-            mmPaisDaPlanilha: false,
+            mmPaisDaPlanilha: true,
           });
         }
       }
